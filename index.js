@@ -1,31 +1,27 @@
 const express = require('express');
 const { Groq } = require('groq-sdk');
+const axios = require('axios');
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Inisialisasi Groq AI
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Endpoint utama & tes kesehatan server
 app.get('/', (req, res) => {
   res.send('Server WA Bot Aktif!');
 });
 
-// Endpoint Webhook untuk Menerima Chat dari Fonnte
 app.post('/webhook', async (req, res) => {
   try {
-    // Fonnte mengirimkan 'pesan' dan 'sender' / 'pengirim'
     const message = req.body.pesan || req.body.message;
     const sender = req.body.sender || req.body.pengirim;
 
-    console.log(`Pesan masuk dari ${sender}: ${message}`);
-
-    // Jika pesan kosong, beri respons sukses ke Fonnte agar tidak retry
     if (!message) {
       return res.json({ status: true });
     }
+
+    console.log(`Pesan masuk dari ${sender}: ${message}`);
 
     // 1. Minta Jawaban dari Groq AI
     const completion = await groq.chat.completions.create({
@@ -38,10 +34,20 @@ app.post('/webhook', async (req, res) => {
 
     const replyText = completion.choices[0]?.message?.content || 'Maaf, saya tidak bisa memproses pesan ini.';
 
-    // 2. Balas Langsung ke Fonnte (Format JSON Balasan Fonnte)
-    return res.json({
-      reply: replyText
-    });
+    // 2. Kirim pesan balasan langsung via API Fonnte
+    if (process.env.FONNTE_TOKEN) {
+      await axios.post('https://api.fonnte.com/send', {
+        target: sender,
+        message: replyText,
+      }, {
+        headers: {
+          'Authorization': process.env.FONNTE_TOKEN
+        }
+      });
+    }
+
+    // Response JSON untuk membalas Fonnte
+    return res.json({ reply: replyText });
 
   } catch (error) {
     console.error('Error handling webhook:', error);
@@ -49,7 +55,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Export app agar bisa dibaca Vercel Serverless Function
 module.exports = app;
 
 if (process.env.NODE_ENV !== 'production') {
